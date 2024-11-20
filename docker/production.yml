@@ -1,0 +1,103 @@
+version: '3.8'
+
+services:
+  # Frontend/Reverse Proxy with TLS
+  proxy:
+    image: nginx:latest
+    ports:
+      - "80:80"
+      - "443:443"
+    deploy:
+      replicas: 3  # Scale proxy to 3 instances
+      update_config:
+        parallelism: 1
+        delay: 10s
+      restart_policy:
+        condition: on-failure
+    volumes:
+      - /etc/letsencrypt:/etc/letsencrypt  # Let’s Encrypt TLS certificates
+      - ./nginx.conf:/etc/nginx/nginx.conf  # Custom Nginx config
+    networks:
+      - frontend
+    depends_on:
+      - app
+
+  # Core Application
+  app:
+    image: my-core-app:latest
+    build:
+      context: ./app  # Use Dockerfile in ./app directory
+    deploy:
+      replicas: 5  # Scale app to 5 instances
+      resources:
+        limits:
+          cpus: "0.5"
+          memory: 512M
+    environment:
+      - ENV=production
+    volumes:
+      - /data/app:/app  # External persistent storage for app data
+    networks:
+      - backend
+
+  # Database Cluster
+  db:
+    image: mariadb:latest
+    environment:
+      - MYSQL_ROOT_PASSWORD=securepassword
+      - MYSQL_DATABASE=prod_db
+      - MYSQL_USER=prod_user
+      - MYSQL_PASSWORD=prod_password
+    deploy:
+      replicas: 3  # Clustered database nodes
+      placement:
+        constraints:
+          - node.role == manager  # Run DB on manager nodes
+    volumes:
+      - db_data:/var/lib/mysql  # Persistent data storage
+    networks:
+      - backend
+
+  # Redis Cache
+  redis:
+    image: redis:latest
+    deploy:
+      replicas: 2  # Scale cache service
+    volumes:
+      - redis_data:/data  # Persistent Redis storage
+    networks:
+      - backend
+
+  # Let’s Encrypt TLS Certificate Manager
+  certbot:
+    image: certbot/certbot
+    command: renew
+    deploy:
+      replicas: 1
+      restart_policy:
+        condition: on-failure
+    volumes:
+      - /etc/letsencrypt:/etc/letsencrypt
+      - /var/log/letsencrypt:/var/log/letsencrypt
+    networks:
+      - frontend
+
+volumes:
+  db_data:
+    driver: nfs
+    driver_opts:
+      share: nfs-server:/mnt/db_data  # NFS mount for database
+  redis_data:
+    driver: nfs
+    driver_opts:
+      share: nfs-server:/mnt/redis_data  # NFS mount for Redis
+  app_data:
+    driver: nfs
+    driver_opts:
+      share: nfs-server:/mnt/app_data  # NFS mount for app
+
+networks:
+  frontend:
+    driver: overlay  # Overlay network for external access
+  backend:
+    driver: overlay  # Overlay network for internal communication

@@ -1,0 +1,20 @@
+
+version: '3.8'
+services:
+  proxy:
+    image: nginx:latest
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf
+  letsencrypt:
+    image: certbot/certbot
+  registry:
+    image: registry:2
+    ports:
+      - "5000:5000"
+  nfs:
+    image: itsthenetwork/nfs-server-alpine
+    volumes:
+      - ./shared:/nfsshare
