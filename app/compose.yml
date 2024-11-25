@@ -1,0 +1,82 @@
+services:
+  view-app:
+    image: view-app:2
+    hostname: view-app
+    container_name: view-app
+    ports:
+      - 8080:5000
+#    networks:
+#      - app
+
+  mongo1:
+    image: mongo:4
+    hostname: mongo1
+    container_name: mongo1
+    command:
+      - mongod
+      - --replSet
+      - myReplicaSet
+      - --bind_ip
+      - localhost,mongo1
+#    networks:
+#      - app
+
+  mongo2:
+    image: mongo:4
+    hostname: mongo2
+    container_name: mongo2
+    command:
+      - mongod
+      - --replSet
+      - myReplicaSet
+      - --bind_ip
+      - localhost,mongo2
+#    networks:
+#      - app
+
+  mongo3:
+    image: mongo:4
+    hostname: mongo3
+    container_name: mongo3
+    command: 
+      - mongod
+      - --replSet
+      - myReplicaSet
+      - --bind_ip
+      - localhost,mongo3
+#    networks:
+#      - app
+
+  mongo-setup:
+    image: mongo:4
+    container_name: mongo-setup
+    depends_on:
+      - mongo1
+      - mongo2
+      - mongo3
+    volumes:
+      - /app:/mongodb_cluster
+    restart: "no"
+    command:
+      - bash
+      - /mongodb_cluster/mongo_setup.sh
+#    networks:
+#      - app
+
+  redis-cache:
+    image: redis:5
+    hostname: redis-cache
+    container_name: redis-cache
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli ping | grep PONG"]
+      interval: 1s
+      timeout: 3s
+      retries: 5
+    command:
+      - redis-server
+#    networks:
+#      - app
+
+#networks:
+#  app:
+#    external: true
