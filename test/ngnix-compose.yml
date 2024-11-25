@@ -1,0 +1,9 @@
+services:
+  nginx:
+    image: nginx:latest
+    container_name: nginx-proxy
+    ports:
+      - "8080:80"  # Expose port 80 on localhost
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro  # Custom Nginx config
+      - ./web:/usr/share/nginx/html:ro  # Static HTML directory

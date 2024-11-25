@@ -1,0 +1,17 @@
+services:
+  nfs-server:
+      image: openebs/nfs-server-alpine
+      container_name: nfs-server
+      privileged: true  # Enable privileged mode
+      ports:
+        - "2049:2049"
+      environment:
+        - SHARED_DIRECTORY=/nfsshare
+        - PERMITTED="*"
+        - READ_ONLY="rw"
+        - SYNC="sync"
+        - FILEPERMISSIONS_UID=1000 # User ID for shared directory permissions
+        - FILEPERMISSIONS_GID=1000 # Group ID for shared directory permissions
+        - FILEPERMISSIONS_MODE=0755
+      volumes:
+        - ./nfsdisk:/nfsshare
