@@ -15,6 +15,6 @@ services:
     ports:
       - "5000:5000"
   nfs:
-    image: itsthenetwork/nfs-server-alpine
+    image: openebs/nfs-server-alpine:latest
     volumes:
       - ./shared:/nfsshare
