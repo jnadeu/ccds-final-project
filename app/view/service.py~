@@ -1,4 +1,18 @@
 import datetime
+import pymongo
+from pymongo import MongoClient, ReadPreference
+import redis
+
+# Init MongoDB
+client = MongoClient("mongodb://app:secret@mongo_db:27017/")
+#                     #replicaSet="myReplicaSet",
+#                     read_preference=ReadPreference.PRIMARY,
+#                     directConnection=True)
+db = client.test
+collection = db.movies
+
+# Init Redis
+r = redis.Redis(host='localhost', port=6379, decode_responses=True)
 
 def search_movie(text):
     """
@@ -7,48 +21,46 @@ def search_movie(text):
 
     Hint: check MongoDB's $facet stage
     """
+    pipeline = [
+        # Filtrar por título
+        {"$match": {"title": {"$regex": text, "$options": "i"}}},
+
+        # Ordenar por popularidad, text score y rating
+        {"$sort": {"popularity": -1, "vote_count": -1, "vote_average": -1}},
+
+        # Limitar los resultados a los primeros 30 para el facet de búsqueda
+        {"$facet": {
+            "searchResults": [
+                #{"$limit": 5},
+                {"$project": {"_id":1, "title": 1, "popularity": 1,
+                              "poster_path": 1, "vote_count": 1,
+                              "vote_average": 1}}
+            ],
+            "genreFacet": [
+                {"$unwind": "$genres"},
+                {"$sortByCount": "$genres"}
+            ],
+            "releaseYearFacet": [
+                {"$group": {"_id": {"$year": "$release_date"},
+                            "count": {"$sum": 1}}},
+                {"$sort": {"_id": 1}}
+            ],
+            "votesFacet": [
+                {"$group": {"_id": "$vote_count", "count": {"$sum": 1}}},
+                {"$sort": {"_id": 1}}
+            ]
+        }}
+    ]
+
+    # Ejecutar la pipeline de agregación
+    results = list(collection.aggregate(pipeline))[0]
+
+    # Devolver el resultado en el formato solicitado
     return {
-        "genreFacet": [
-            {"_id": "Science Fiction", "count": 21},
-            {"_id": "Horror", "count": 10},
-            {"_id": "Action", "count": 9},
-            # ...
-            {"_id": "Drama", "count": 1},
-        ],
-        "releaseYearFacet": [
-            {"_id": 1979, "count": 1},
-            {"_id": 1986, "count": 1},
-            # ...
-            {"_id": 2022, "count": 1},
-            {"_id": 2023, "count": 2},
-        ],
-        "searchResults": [
-            {
-                "_id": 981314,
-                "poster_path": "/kaSvEH3RJvQa6NfAuEVqDMBEk5E.jpg",
-                "release_date": datetime.datetime(2023, 5, 11, 0, 0),
-                "score": 0.75,
-                "title": "Alien Invasion",
-                "vote_average": 5.542,
-                "vote_count": 48,
-            },
-            {
-                "_id": 126889,
-                "poster_path": "/zecMELPbU5YMQpC81Z8ImaaXuf9.jpg",
-                "release_date": datetime.datetime(2017, 5, 9, 0, 0),
-                "score": 0.75,
-                "title": "Alien: Covenant",
-                "vote_average": 6.1,
-                "vote_count": 7822,
-            },
-            # ...
-        ],
-        "votesFacet": [
-            {"_id": 0, "count": 2},
-            {"_id": 5, "count": 18},
-            {"_id": 7, "count": 4},
-            {"_id": 8, "count": 1},
-        ],
+        "genreFacet": results["genreFacet"],
+        "releaseYearFacet": results["releaseYearFacet"],
+        "searchResults": results["searchResults"],
+        "votesFacet": results["votesFacet"]
     }
 
 
@@ -132,26 +144,24 @@ def get_similar_movies(movie_id, genres):
 
     Discard movies with votes by less than 500 users. Limit to 10 results.
     """
-    return [
-        {
-            "_id": 335,
-            "genres": 2,
-            "poster_path": "/qbYgqOczabWNn2XKwgMtVrntD6P.jpg",
-            "release_date": datetime.datetime(1968, 12, 21, 0, 0),
-            "title": "Once Upon a Time in the West",
-            "vote_average": 8.294,
-            "vote_count": 3923,
-        },
-        {
-            "_id": 3090,
-            "genres": 2,
-            "poster_path": "/pWcst7zVbi8Z8W6GFrdNE7HHRxL.jpg",
-            "release_date": datetime.datetime(1948, 1, 15, 0, 0),
-            "title": "The Treasure of the Sierra Madre",
-            "vote_average": 7.976,
-            "vote_count": 1066,
-        },
-    ]
+    similar_movies = []
+    discard_genres = []
+    while len(similar_movies) < 10 and len(genres) > 0:
+        limit = 10 - len(similar_movies)
+        similar = collection.find({"genres": {"$all": genres},
+                                   "vote_count": {"$gt": 500},
+                                   "_id": {"$ne": movie_id}},
+                                  {"_id": 1, "genres": 1, "poster_path": 1,
+                                   "release": 1, "title": 1, "vote_average": 1,
+                                   "vote_count": 1}
+                                  ).sort("vote_average", pymongo.DESCENDING
+                                         ).limit(limit)
+        for movie in similar:
+            similar_movies.append(movie)
+
+        discard_genres = genres.pop()
+    
+    return similar_movies
 
 
 def get_movie_likes(username, movie_id):
