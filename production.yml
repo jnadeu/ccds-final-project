@@ -1,101 +1,128 @@
 services:
-  # Frontend/Reverse Proxy with TLS
-  proxy:
-    image: nginx:latest
+  mariadb:
+    image: docker.io/bitnami/mariadb:11.4
+    container_name: mariadb
+    environment:
+      - ALLOW_EMPTY_PASSWORD=yes
+      - MARIADB_USER=bn_moodle
+      - MARIADB_DATABASE=bitnami_moodle
+      - MARIADB_CHARACTER_SET=utf8mb4
+      - MARIADB_COLLATE=utf8mb4_unicode_ci
+    volumes:
+      - 'mariadb_data:/bitnami/mariadb'
+    networks:
+      - internal-network  # Attach to the custom network
+
+  moodle:
+    image: docker.io/bitnami/moodle:4.5
+    container_name: moodle
     ports:
-      - "80:80"
-      - "443:443"
-    deploy:
-      replicas: 3  # Scale proxy to 3 instances
-      update_config:
-        parallelism: 1
-        delay: 10s
-      restart_policy:
-        condition: on-failure
+      - '8081:8080'  # Expose port 8081 to host
+    environment:
+      - MOODLE_DATABASE_HOST=mariadb
+      - MOODLE_DATABASE_PORT_NUMBER=3306
+      - MOODLE_DATABASE_USER=bn_moodle
+      - MOODLE_DATABASE_NAME=bitnami_moodle
+      - ALLOW_EMPTY_PASSWORD=yes
     volumes:
-      - /etc/letsencrypt:/etc/letsencrypt  # Let’s Encrypt TLS certificates
-      - ./nginx.conf:/etc/nginx/nginx.conf  # Custom Nginx config
-    networks:
-      - frontend
+      - 'moodle_data:/bitnami/moodle'
+      - 'moodledata_data:/bitnami/moodledata'
     depends_on:
-      - app
-
-  # Core Application
-  app:
-    image: my-core-app:latest
+      - mariadb
+    networks:
+      - internal-network  # Attach to the custom network
+  
+  core-app:
     build:
-      context: ./app  # Use Dockerfile in ./app directory
-    deploy:
-      replicas: 5  # Scale app to 5 instances
-      resources:
-        limits:
-          cpus: "0.5"
-          memory: 512M
-    environment:
-      - ENV=production
-    volumes:
-      - /data/app:/app  # External persistent storage for app data
+      context: ./app/view  # Directory where the Dockerfile is located
+    container_name: core-app
+    depends_on:
+      - mongodb
+      - redis-cache
     networks:
-      - backend
+      - internal-network  # Attach to the custom network
 
-  # Database Cluster
-  db:
-    image: mariadb:latest
+  mongodb:
+    image: mongo:latest
+    hostname: mongodb
+    container_name: mongodb
+    restart: always
     environment:
-      - MYSQL_ROOT_PASSWORD=securepassword
-      - MYSQL_DATABASE=prod_db
-      - MYSQL_USER=prod_user
-      - MYSQL_PASSWORD=prod_password
-    deploy:
-      replicas: 3  # Clustered database nodes
-      placement:
-        constraints:
-          - node.role == manager  # Run DB on manager nodes
-    volumes:
-      - db_data:/var/lib/mysql  # Persistent data storage
+      MONGO_INITDB_ROOT_USERNAME: app
+      MONGO_INITDB_ROOT_PASSWORD: secret
+      ME_CONFIG_MONGODB_URL: mongodb://app:secret@mongo_db:27017
+      ME_CONFIG_BASICAUTH: false
     networks:
-      - backend
+      - internal-network  # Attach to the custom network
 
-  # Redis Cache
-  redis:
+  mongo-setup:
+    image: mongo:latest
+    hostname: mongo-setup
+    container_name: mongo-setup
+    links:
+      - mongodb
+    volumes:
+      - ./mongodb:/mongodb
+    command:
+      - /mongodb/mongo_setup.sh
+    networks:
+      - internal-network  # Attach to the custom network
+
+  redis-cache:
     image: redis:latest
-    deploy:
-      replicas: 2  # Scale cache service
-    volumes:
-      - redis_data:/data  # Persistent Redis storage
+    hostname: redis-cache
+    container_name: redis-cache
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli ping | grep PONG"]
+      interval: 1s
+      timeout: 3s
+      retries: 5
+    command:
+      - redis-server
     networks:
-      - backend
+      - internal-network  # Attach to the custom network
 
-  # Let’s Encrypt TLS Certificate Manager
-  certbot:
-    image: certbot/certbot
-    command: renew
-    deploy:
-      replicas: 1
-      restart_policy:
-        condition: on-failure
+  nfs-server:
+    image: openebs/nfs-server-alpine
+    container_name: nfs-server
+    privileged: true  # Enable privileged mode
+    ports:
+      - "2049:2049"
+    environment:
+      - SHARED_DIRECTORY=/nfsshare
+      - PERMITTED="*"
+      - READ_ONLY="rw"
+      - SYNC="sync"
+      - FILEPERMISSIONS_UID=1000 # User ID for shared directory permissions
+      - FILEPERMISSIONS_GID=1000 # Group ID for shared directory permissions
+      - FILEPERMISSIONS_MODE=0755
     volumes:
-      - /etc/letsencrypt:/etc/letsencrypt
-      - /var/log/letsencrypt:/var/log/letsencrypt
+      - ./nfs/nfsdisk:/nfsshare
+
+  nginx:
+    image: nginx:latest
+    container_name: nginx-proxy
+    ports:
+      - "8080:80"  # Expose port 8080 to localhost
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro  # Custom Nginx config
+      - ./static/data:/usr/share/nginx/html  # Mount local ./static directory to Nginx's HTML root
+    depends_on:
+      - moodle
+      - mariadb
+      - core-app
+      - nfs-server
     networks:
-      - frontend
+      - internal-network  # Attach to the custom network
 
 volumes:
-  db_data:
-    driver: nfs
-    driver_opts:
-      share: nfs-server:/mnt/db_data  # NFS mount for database
-  redis_data:
-    driver: nfs
-    driver_opts:
-      share: nfs-server:/mnt/redis_data  # NFS mount for Redis
-  app_data:
-    driver: nfs
-    driver_opts:
-      share: nfs-server:/mnt/app_data  # NFS mount for app
+  mariadb_data:
+    driver: local
+  moodle_data:
+    driver: local
+  moodledata_data:
+    driver: local
 
 networks:
-  frontend:
-    driver: overlay  # Overlay network for external access
-  backend:
-    driver: overlay  # Overlay network for internal communication
+  internal-network:
+    driver: bridge

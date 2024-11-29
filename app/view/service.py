@@ -1,19 +1,5 @@
 import datetime
-import pymongo
-from pymongo import MongoClient, ReadPreference
-import redis
-import json
 
-# Init MongoDB
-client = MongoClient("mongodb://app:secret@mongodb:27017")
-#                     #replicaSet="myReplicaSet",
-#                     read_preference=ReadPreference.PRIMARY,
-#                     directConnection=True)
-db = client.test
-collection = db.movies
-
-# Init Redis
-r = redis.Redis(host='redis-cache', port=6379, decode_responses=True)
 
 def search_movie(text):
     """
@@ -22,46 +8,48 @@ def search_movie(text):
 
     Hint: check MongoDB's $facet stage
     """
-    pipeline = [
-        # Filtrar por título
-        {"$match": {"title": {"$regex": text, "$options": "i"}}},
-
-        # Ordenar por popularidad, text score y rating
-        {"$sort": {"popularity": -1, "vote_count": -1, "vote_average": -1}},
-
-        # Limitar los resultados a los primeros 30 para el facet de búsqueda
-        {"$facet": {
-            "searchResults": [
-                #{"$limit": 5},
-                {"$project": {"_id":1, "title": 1, "popularity": 1,
-                              "poster_path": 1, "vote_count": 1,
-                              "vote_average": 1}}
-            ],
-            "genreFacet": [
-                {"$unwind": "$genres"},
-                {"$sortByCount": "$genres"}
-            ],
-            "releaseYearFacet": [
-                {"$group": {"_id": {"$year": "$release_date"},
-                            "count": {"$sum": 1}}},
-                {"$sort": {"_id": 1}}
-            ],
-            "votesFacet": [
-                {"$group": {"_id": "$vote_count", "count": {"$sum": 1}}},
-                {"$sort": {"_id": 1}}
-            ]
-        }}
-    ]
-
-    # Ejecutar la pipeline de agregación
-    results = list(collection.aggregate(pipeline))[0]
-
-    # Devolver el resultado en el formato solicitado
     return {
-        "genreFacet": results["genreFacet"],
-        "releaseYearFacet": results["releaseYearFacet"],
-        "searchResults": results["searchResults"],
-        "votesFacet": results["votesFacet"]
+        "genreFacet": [
+            {"_id": "Science Fiction", "count": 21},
+            {"_id": "Horror", "count": 10},
+            {"_id": "Action", "count": 9},
+            # ...
+            {"_id": "Drama", "count": 1},
+        ],
+        "releaseYearFacet": [
+            {"_id": 1979, "count": 1},
+            {"_id": 1986, "count": 1},
+            # ...
+            {"_id": 2022, "count": 1},
+            {"_id": 2023, "count": 2},
+        ],
+        "searchResults": [
+            {
+                "_id": 981314,
+                "poster_path": "/kaSvEH3RJvQa6NfAuEVqDMBEk5E.jpg",
+                "release_date": datetime.datetime(2023, 5, 11, 0, 0),
+                "score": 0.75,
+                "title": "Alien Invasion",
+                "vote_average": 5.542,
+                "vote_count": 48,
+            },
+            {
+                "_id": 126889,
+                "poster_path": "/zecMELPbU5YMQpC81Z8ImaaXuf9.jpg",
+                "release_date": datetime.datetime(2017, 5, 9, 0, 0),
+                "score": 0.75,
+                "title": "Alien: Covenant",
+                "vote_average": 6.1,
+                "vote_count": 7822,
+            },
+            # ...
+        ],
+        "votesFacet": [
+            {"_id": 0, "count": 2},
+            {"_id": 5, "count": 18},
+            {"_id": 7, "count": 4},
+            {"_id": 8, "count": 1},
+        ],
     }
 
 
@@ -69,60 +57,69 @@ def get_top_rated_movies():
     """
     Return top rated 25 movies with more than 5k votes
     """
-    cached_data = r.get("top_rated_movies")
-    if cached_data:
-        return json.loads(cached_data)
-    
-    top_rate = collection.find({"vote_count": {"$gte": 5000}},
-                           {"_id": 1, "poster_path": 1, "release_date": 1,
-                            "title": 1, "vote_average": 1,
-                            "vote_count": 1}).sort("vote_average", -1).limit(25)
-    top_rate_movies = []
-    for movie in top_rate:
-        top_rate_movies.append(movie)
-        
-    r.setex("top_rated_movies", 600, json.dumps(top_rate_movies, default=str))
-    return top_rate_movies
+    return [
+        {
+            "_id": 238,
+            "poster_path": "/3bhkrj58Vtu7enYsRolD1fZdja1.jpg",
+            "release_date": datetime.datetime(1972, 3, 14, 0, 0),
+            "title": "The Godfather",
+            "vote_average": 8.707,
+            "vote_count": 18677,
+        },
+        {
+            "_id": 278,
+            "poster_path": "/lyQBXzOQSuE59IsHyhrp0qIiPAz.jpg",
+            "release_date": datetime.datetime(1994, 9, 23, 0, 0),
+            "title": "The Shawshank Redemption",
+            "vote_average": 8.702,
+            "vote_count": 24649,
+        },
+    ]
 
 
 def get_recent_released_movies():
     """
     Return recently released movies that at least are reviewed by 50 users
     """
-    cached_data = r.get("recent_released_movies")
-    if cached_data:
-        return json.loads(cached_data)
-
-    current_date=datetime.datetime.now()
-    released=collection.find({"release_date": {"$lt": current_date},
-                              "vote_count":{"$gt": 50}}, 
-                                {"_id": 1, "poster_path": 1, "release_date": 1,
-                                 "title": 1, "vote_average": 1, "vote_count":1
-                                 }).sort("release_date", -1).limit(50)
-    released_list=[]
-    for movie in released:
-        released_list.append(movie)
-        
-    r.setex("recent_released_movies", 600, json.dumps(released_list, default=str))
-    return released_list
+    return [
+        {
+            "_id": 1151534,
+            "poster_path": "/rpzFxv78UvYG5yQba2soO5mMl4T.jpg",
+            "release_date": datetime.datetime(2023, 9, 29, 0, 0),
+            "title": "Nowhere",
+            "vote_average": 7.895,
+            "vote_count": 195,
+        },
+        {
+            "_id": 866463,
+            "poster_path": "/soIgqZBoTiTgMqUW0JtxsPWAilQ.jpg",
+            "release_date": datetime.datetime(2023, 9, 29, 0, 0),
+            "title": "Reptile",
+            "vote_average": 7.354,
+            "vote_count": 65,
+        },
+    ]
 
 
 def get_movie_details(movie_id):
     """
     Return detailed information for the specified movie_id
     """
-    cached_data = r.get("movie_detail_"+str(movie_id))
-    if cached_data:
-        return json.loads(cached_data)
-    
-    movie=collection.find_one({"_id": movie_id},{"_id":1, "genres":1,
-                                                 "overview": 1, "poster_path": 1,
-                                                 "release_date": 1, "tagline": 1,
-                                                 "title": 1, "vote_average": 1,
-                                                 "vote_count": 1})
-    
-    r.setex("movie_detail_"+str(movie_id), 600, json.dumps(movie, default=str))
-    return movie
+    return {
+        "_id": 238,
+        "genres": ["Drama", "Crime"],
+        "overview": "Spanning the years 1945 to 1955, a chronicle of the fictional "
+        "Italian-American Corleone crime family. When organized crime "
+        "family patriarch, Vito Corleone barely survives an attempt on "
+        "his life, his youngest son, Michael steps in to take care of the "
+        "would-be killers, launching a campaign of bloody revenge.",
+        "poster_path": "/3bhkrj58Vtu7enYsRolD1fZdja1.jpg",
+        "release_date": datetime.datetime(1972, 3, 14, 0, 0),
+        "tagline": "An offer you can't refuse.",
+        "title": "The Godfather",
+        "vote_average": 8.707,
+        "vote_count": 18677,
+    }
 
 
 def get_similar_movies(movie_id, genres):
@@ -136,24 +133,26 @@ def get_similar_movies(movie_id, genres):
 
     Discard movies with votes by less than 500 users. Limit to 10 results.
     """
-    similar_movies = []
-    discard_genres = []
-    while len(similar_movies) < 10 and len(genres) > 0:
-        limit = 10 - len(similar_movies)
-        similar = collection.find({"genres": {"$all": genres},
-                                   "vote_count": {"$gt": 500},
-                                   "_id": {"$ne": movie_id}},
-                                  {"_id": 1, "genres": 1, "poster_path": 1,
-                                   "release": 1, "title": 1, "vote_average": 1,
-                                   "vote_count": 1}
-                                  ).sort("vote_average", pymongo.DESCENDING
-                                         ).limit(limit)
-        for movie in similar:
-            similar_movies.append(movie)
-
-        discard_genres = genres.pop()
-    
-    return similar_movies
+    return [
+        {
+            "_id": 335,
+            "genres": 2,
+            "poster_path": "/qbYgqOczabWNn2XKwgMtVrntD6P.jpg",
+            "release_date": datetime.datetime(1968, 12, 21, 0, 0),
+            "title": "Once Upon a Time in the West",
+            "vote_average": 8.294,
+            "vote_count": 3923,
+        },
+        {
+            "_id": 3090,
+            "genres": 2,
+            "poster_path": "/pWcst7zVbi8Z8W6GFrdNE7HHRxL.jpg",
+            "release_date": datetime.datetime(1948, 1, 15, 0, 0),
+            "title": "The Treasure of the Sierra Madre",
+            "vote_average": 7.976,
+            "vote_count": 1066,
+        },
+    ]
 
 
 def get_movie_likes(username, movie_id):

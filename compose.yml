@@ -33,14 +33,11 @@ services:
       - internal-network  # Attach to the custom network
   
   core-app:
-    image: view-app:3
+    build:
+      context: ./app/view  # Directory where the Dockerfile is located
     container_name: core-app
-    hostname: view-app
-    ports:
-      - 8080:5000
     depends_on:
       - mongodb
-      - mongo-setup
       - redis-cache
     networks:
       - internal-network  # Attach to the custom network
@@ -100,7 +97,7 @@ services:
       - FILEPERMISSIONS_GID=1000 # Group ID for shared directory permissions
       - FILEPERMISSIONS_MODE=0755
     volumes:
-      - ./nfsdisk:/nfsshare
+      - ./nfs/nfsdisk:/nfsshare
 
   nginx:
     image: nginx:latest
@@ -109,7 +106,8 @@ services:
       - "8080:80"  # Expose port 8080 to localhost
     volumes:
       - ./nginx.conf:/etc/nginx/nginx.conf:ro  # Custom Nginx config
-      - ./static:/usr/share/nginx/html  # Mount local ./static directory to Nginx's HTML root
+      - ./static/data:/usr/share/nginx/html  # Mount local ./static directory to Nginx's HTML root
+      - ./app/view:/usr/share/nginx/html  # Mount local ./static directory to Nginx's HTML root
     depends_on:
       - moodle
       - mariadb

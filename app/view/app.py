@@ -1,6 +1,4 @@
 from flask import Flask, render_template, request, session, redirect
-
-# from .service_impl import (
 from service import (
     get_top_rated_movies,
     get_movie_details,
@@ -26,7 +24,7 @@ def index():
     top_rated_movies = get_top_rated_movies()
     recent_movies = get_recent_released_movies()
     if username := session.get("username"):
-        recommendations = get_recommendations_for_me(username)
+        recommendations = get_recommendations_for_me(username, k=3)
     else:
         recommendations = []
     return render_template(
@@ -51,22 +49,19 @@ def search_results():
     )
 
 
-@app.route("/movie/<movie_id>")
+@app.route("/movie/<movie_id>", methods=["GET", "POST"])
 def movie_details(movie_id):
+    if request.method == "POST":
+        # Save the form data to the session object
+        session["username"] = request.form["username"]
+        return redirect("/movie/" + movie_id)
     movie_id = int(movie_id)
     movie = get_movie_details(movie_id)
-    if movie and (username := session.get("username")):
-        likes = get_movie_likes(username,movie_id)
-    else:
-        likes = []
-
     if movie:
         similar = get_similar_movies(movie_id, movie["genres"])
+        likes = get_movie_likes(movie_id)
     else:
         similar = []
+        likes = []
 
     return render_template("details.html", movie=movie, similar=similar, likes=likes)
-    
-
-if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=5000)
