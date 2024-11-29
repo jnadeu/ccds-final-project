@@ -107,6 +107,7 @@ services:
     volumes:
       - ./nginx.conf:/etc/nginx/nginx.conf:ro  # Custom Nginx config
       - ./static/data:/usr/share/nginx/html  # Mount local ./static directory to Nginx's HTML root
+      - ./app/view:/usr/share/nginx/html  # Mount local ./static directory to Nginx's HTML root
     depends_on:
       - moodle
       - mariadb
