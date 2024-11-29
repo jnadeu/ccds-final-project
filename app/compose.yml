@@ -46,6 +46,26 @@ services:
 #    networks:
 #      - app
 
+  smtp-server:
+    image: crazymax/msmtpd
+    container_name: smtp-server
+    secrets:
+      - smtp_user
+      - smtp_password
+    environment:
+      - SMTP_HOST=smtp.gmail.com
+      - SMTP_PORT=587
+      - SMTP_TLS=on
+      - SMTP_USER_FILE=/run/secrets/smtp_user
+      - SMTP_PASSWORD_FILE=/run/secrets/smtp_password
+    restart: always
+
 #networks:
 #  app:
 #    external: true
+
+secrets:
+  smtp_user:
+    file: ./smtp_user
+  smtp_password:
+    file: ./smtp_password
